@@ -13,6 +13,7 @@ This is an Arduino Library which can be found in the Arduino IDE Library Manager
 | Acaia  | Pyxis   | ----                       | v1.0.022 | Good  | Not Recommended (too sensitive) | Yes | Yes
 | Bookoo | Themis  Mini | ----                       | v1.0.5   | Great | Yes | Yes | Yes 
 | Bookoo | Themis Ultra  | ----                 | ----   | Great | Yes | Yes | Yes 
+| DiFluid | Microbalance | ----                 | ----   | Good  | Yes | No (not implemented) | No (not implemented)
 
 
 ## Requirements
@@ -119,6 +120,8 @@ Scale Compatibility:
 ❌ Felicita Arc (buggy, see bug report)
 
 ☑ Bookoo
+
+☑ DiFluid Microbalance
 
 Hardware:
 

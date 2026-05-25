@@ -27,6 +27,11 @@
 #define READ_CHAR_BOOKOO       "ff11"  // Same as GENERIC
 #define WRITE_CHAR_WEIGHMYBRU  "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 #define READ_CHAR_WEIGHMYBRU   "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
+// DiFluid Microbalance / Microbalance Ti: service 000000EE exposes two characteristics,
+// AA01 = cleartext (DF DF protocol, used here) and FF01 = encrypted (ignored). AA01 is
+// notify + write, so one characteristic serves as both read and write.
+#define SUUID_DIFLUID          "000000EE-0000-1000-8000-00805F9B34FB"
+#define CHAR_DIFLUID           "0000AA01-0000-1000-8000-00805F9B34FB"
 #define HEARTBEAT_PERIOD_MS    2750
 #define MAX_PACKET_PERIOD_MS   5000
 
@@ -44,7 +49,8 @@ enum scale_type {
     GENERIC, // Felicita Arc, etc
     DECENT, // Decent Scale + EspressiScale
     BOOKOO, // Bookoo Themis and Themis Ultra
-    WEIGHMYBRU // WeighMyBru DIY scales
+    WEIGHMYBRU, // WeighMyBru DIY scales
+    DIFLUID // DiFluid Microbalance / Microbalance Ti (cleartext AA01 channel)
 };
 
 enum ConnectionState {

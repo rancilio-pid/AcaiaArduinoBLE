@@ -37,6 +37,10 @@ const byte START_TIMER_WEIGHMYBRU[4] = {0x03, 0x0a, 0x02, 0x01};
 const byte STOP_TIMER_WEIGHMYBRU[4] = {0x03, 0x0a, 0x03, 0x01};
 const byte RESET_TIMER_WEIGHMYBRU[4] = {0x03, 0x0a, 0x04, 0x01};
 
+// DiFluid Microbalance (cleartext AA01). Checksum byte = sum(all prior bytes) & 0xFF.
+const byte DIFLUID_AUTOSEND_ON[7] = {0xDF, 0xDF, 0x01, 0x00, 0x01, 0x01, 0xC1}; // Func1/Cmd0 Auto Send = On
+const byte TARE_DIFLUID[7] = {0xDF, 0xDF, 0x03, 0x02, 0x01, 0x01, 0xC5}; // Func3/Cmd2 single-click power btn
+
 // Static instance for callback
 AcaiaArduinoBLE *AcaiaArduinoBLE::_instance = nullptr;
 
@@ -80,7 +84,8 @@ bool MyAdvertisedDeviceCallbacks::isSupportedScale(const String &name) {
     return normalizedName.startsWith("ACAIA") || normalizedName.startsWith("LUNAR") || normalizedName.
            startsWith("PYXIS") || normalizedName.startsWith("PEARL") || normalizedName.startsWith("CINCO") ||
            normalizedName.startsWith("PROCH") || normalizedName.startsWith("BOOKOO") || normalizedName.
-           startsWith("DECENT") || normalizedName.startsWith("ESPRESSISCALE") || normalizedName.startsWith("WEIGHMYBRU");
+           startsWith("DECENT") || normalizedName.startsWith("ESPRESSISCALE") || normalizedName.startsWith("WEIGHMYBRU") ||
+           normalizedName.startsWith("MICROBALANCE"); // DiFluid Microbalance / Microbalance Ti
 }
 
 void MyClientCallback::onConnect(NimBLEClient *pclient) {
@@ -505,6 +510,18 @@ bool AcaiaArduinoBLE::updateConnection() {
                 }
             }
 
+            // Try DiFluid Microbalance (cleartext AA01 channel; FF01 in the same service is encrypted)
+            if (!pService) {
+                pService = _pClient->getService(NimBLEUUID(SUUID_DIFLUID));
+
+                if (pService) {
+                    _type = DIFLUID;
+                    _pWriteCharacteristic = pService->getCharacteristic(NimBLEUUID(CHAR_DIFLUID));
+                    _pReadCharacteristic = pService->getCharacteristic(NimBLEUUID(CHAR_DIFLUID));
+                    if (_debug) Serial.println("DiFluid Microbalance detected");
+                }
+            }
+
             if (pService && _pWriteCharacteristic && _pReadCharacteristic) {
                 if (_debug) Serial.println("Service and characteristics found");
                 _connectionState = CONFIGURING;
@@ -547,8 +564,8 @@ bool AcaiaArduinoBLE::updateConnection() {
                 break;
             }
 
-            // Send identify command (except for GENERIC scales)
-            if (_type != GENERIC) {
+            // Send identify command (except for GENERIC and DiFluid scales)
+            if (_type != GENERIC && _type != DIFLUID) {
                 if (!_pWriteCharacteristic->writeValue(IDENTIFY, 20, false)) {
                     if (_debug) Serial.println("Failed to send identify command");
                     _connectionState = FAILED;
@@ -560,8 +577,8 @@ bool AcaiaArduinoBLE::updateConnection() {
                 delay(200); // Give the scale time to process
             }
 
-            // Send notification request (except for GENERIC scales)
-            if (_type != GENERIC) {
+            // Send notification request (except for GENERIC and DiFluid scales)
+            if (_type != GENERIC && _type != DIFLUID) {
                 if (!_pWriteCharacteristic->writeValue(NOTIFICATION_REQUEST, 14, false)) {
                     if (_debug) Serial.println("Failed to send notification request");
                     _connectionState = FAILED;
@@ -570,6 +587,19 @@ bool AcaiaArduinoBLE::updateConnection() {
                 }
 
                 if (_debug) Serial.println("Notification request sent");
+                delay(200); // Give the scale time to process
+            }
+
+            // DiFluid: enable cleartext weight auto-send on AA01 (write-with-response, no heartbeat needed)
+            if (_type == DIFLUID) {
+                if (!_pWriteCharacteristic->writeValue(DIFLUID_AUTOSEND_ON, sizeof(DIFLUID_AUTOSEND_ON), true)) {
+                    if (_debug) Serial.println("Failed to enable DiFluid auto-send");
+                    _connectionState = FAILED;
+                    _connectionStartTime = millis();
+                    break;
+                }
+
+                if (_debug) Serial.println("DiFluid auto-send enabled");
                 delay(200); // Give the scale time to process
             }
 
@@ -754,6 +784,9 @@ void AcaiaArduinoBLE::tare() {
         else if (_type == WEIGHMYBRU) {
             _pWriteCharacteristic->writeValue(TARE_WEIGHMYBRU, sizeof(TARE_WEIGHMYBRU), false);
         }
+        else if (_type == DIFLUID) {
+            _pWriteCharacteristic->writeValue(TARE_DIFLUID, sizeof(TARE_DIFLUID), true); // write-with-response
+        }
         else {
             _pWriteCharacteristic->writeValue(TARE_ACAIA, sizeof(TARE_ACAIA), false);
         }
@@ -776,6 +809,9 @@ void AcaiaArduinoBLE::startTimer() const {
     else if (_type == WEIGHMYBRU) {
         _pWriteCharacteristic->writeValue(START_TIMER_WEIGHMYBRU, sizeof(START_TIMER_WEIGHMYBRU), false);
     }
+    else if (_type == DIFLUID) {
+        // On-scale timer not implemented for DiFluid yet (command bytes unverified). No-op.
+    }
     else {
         _pWriteCharacteristic->writeValue(START_TIMER, sizeof(START_TIMER), false);
     }
@@ -797,6 +833,9 @@ void AcaiaArduinoBLE::stopTimer() const {
     else if (_type == WEIGHMYBRU) {
         _pWriteCharacteristic->writeValue(STOP_TIMER_WEIGHMYBRU, sizeof(STOP_TIMER_WEIGHMYBRU), false);
     }
+    else if (_type == DIFLUID) {
+        // On-scale timer not implemented for DiFluid yet (command bytes unverified). No-op.
+    }
     else {
         _pWriteCharacteristic->writeValue(STOP_TIMER, sizeof(STOP_TIMER), false);
     }
@@ -817,6 +856,9 @@ void AcaiaArduinoBLE::resetTimer() const {
     }
     else if (_type == WEIGHMYBRU) {
         _pWriteCharacteristic->writeValue(RESET_TIMER_WEIGHMYBRU, sizeof(RESET_TIMER_WEIGHMYBRU), false);
+    }
+    else if (_type == DIFLUID) {
+        // On-scale timer not implemented for DiFluid yet (command bytes unverified). No-op.
     }
     else {
         _pWriteCharacteristic->writeValue(RESET_TIMER, sizeof(RESET_TIMER), false);
@@ -1090,6 +1132,35 @@ void AcaiaArduinoBLE::notifyCallback(const uint8_t *pData, size_t length) {
                 Serial.print(length);
                 Serial.print(", first byte: 0x");
                 Serial.println(pData[0], HEX);
+            }
+        }
+        else if (_type == DIFLUID && length == 19
+                 && pData[0] == 0xDF && pData[1] == 0xDF
+                 && pData[2] == 0x03 && pData[3] == 0x00 && pData[4] == 0x0D) {
+            // DiFluid Microbalance cleartext sensor frame (19 bytes):
+            //   DF DF 03 00 0D | W0 W1 W2 W3 | flow(2) | time(2) | timestamp(4) | unit | checksum
+            // Weight = signed big-endian int32 at offset 5, x0.1 g. Other AA01 frames (the Func1
+            // auto-send echo, and Func3/Cmd5 status with pData[3]==0x05) are excluded by the guards.
+            uint8_t calculated_checksum = 0;
+
+            for (size_t i = 0; i < length - 1; i++) { // sum checksum (NOT XOR)
+                calculated_checksum += pData[i];
+            }
+
+            if (calculated_checksum == pData[length - 1]) {
+                const auto raw = static_cast<int32_t>(
+                    (static_cast<uint32_t>(pData[5]) << 24) | (static_cast<uint32_t>(pData[6]) << 16) |
+                    (static_cast<uint32_t>(pData[7]) << 8) | static_cast<uint32_t>(pData[8]));
+                _currentWeight = raw / 10.0f; // grams (pData[17] = unit flag; assume grams)
+                newWeightPacket = true;
+
+                if (_debug) {
+                    Serial.print("DiFluid scale weight: ");
+                    Serial.println(_currentWeight, 1);
+                }
+            }
+            else if (_debug) {
+                Serial.println("DiFluid checksum mismatch - ignoring packet");
             }
         }
 
